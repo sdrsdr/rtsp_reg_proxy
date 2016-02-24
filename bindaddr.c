@@ -19,37 +19,55 @@
 
 #include "bindaddr.h"
 
+#include <stdbool.h>
 #include <netdb.h>
 #include <string.h>
 
 #include <sys/types.h>          
 #include <sys/socket.h>
 
-int bindaddr (struct sockaddr_in *sadr,const char *host, uint16_t port) {
+#include <netinet/tcp.h>
 
+
+
+bool bindaddrhl (struct sockaddr_in *sadr,const char *host,unsigned host_l, uint16_t port) {
+	char hostcp[2048];
+	if (host_l==0 || host_l>2047) return false;
+	strcpy(hostcp,host);
+	return bindaddr(sadr,hostcp,port);
+}
+
+bool bindaddr (struct sockaddr_in *sadr,const char *host, uint16_t port){
 	memset (sadr,0,sizeof(*sadr));
 	
 	sadr->sin_family = AF_INET;
 	sadr->sin_port= htons(port);
 	if (host!=NULL) {
 		struct hostent *hent = gethostbyname (host);
-		if (hent==NULL) return 0;
+		if (hent==NULL) return false;
 		char **ip= hent->h_addr_list;
 		sadr->sin_addr = *((struct in_addr *)*ip);
 	} else {
 		sadr->sin_addr.s_addr=INADDR_ANY;
 	}
-	return 1;
+	return true;
 }
+
 int canreuseaddr (int sock) {
 	int optval=1;
 	return setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (char *)&optval, sizeof(optval));
 }
 
-int connsock(int sock, const char *host, uint16_t port){
+bool connsockhl(int sock, const char *host,unsigned host_l, uint16_t port){
 	struct sockaddr_in connsock_addr;
-	if (!bindaddr (&connsock_addr, host, port)) return 0;
-	if (connect(sock,(struct sockaddr *)&connsock_addr,sizeof(connsock_addr))==0) return 1;
-	else return 0;
+	if (!bindaddrhl (&connsock_addr, host,host_l, port)) return false;
+	if (connect(sock,(struct sockaddr *)&connsock_addr,sizeof(connsock_addr))==0) return true;
+	else return false;
 }
+
+
+void setnodelay(int sock, bool nodelay) {
+	int flag = (nodelay?1:0);
+	setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,  (char *) &flag,  sizeof(int));
+};
 

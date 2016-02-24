@@ -23,7 +23,7 @@
 #include "urlparse.h"
 #include "strtoint.h"
 
-bool parseurl(const char *url, parsedurl_t *pr,unsigned maxlen){
+bool parseurlml(const char *url, parsedurl_t *pr,unsigned maxlen){
 	enum {
 		proto,user_or_host,pass_or_port,host,port,uri
 	} state=proto;
