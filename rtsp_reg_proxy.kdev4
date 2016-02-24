@@ -1,0 +1,4 @@
+[Project]
+Name=rtsp_reg_proxy
+Manager=KDevCMakeManager
+VersionControl=kdevgit
