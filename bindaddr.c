@@ -27,13 +27,13 @@
 #include <sys/socket.h>
 
 #include <netinet/tcp.h>
-
+#include <errno.h>
 
 
 bool bindaddrhl (struct sockaddr_in *sadr,const char *host,unsigned host_l, uint16_t port) {
 	char hostcp[2048];
 	if (host_l==0 || host_l>2047) return false;
-	strcpy(hostcp,host);
+	memcpy(hostcp,host,host_l);hostcp[host_l]=0;
 	return bindaddr(sadr,hostcp,port);
 }
 
@@ -61,8 +61,13 @@ int canreuseaddr (int sock) {
 bool connsockhl(int sock, const char *host,unsigned host_l, uint16_t port){
 	struct sockaddr_in connsock_addr;
 	if (!bindaddrhl (&connsock_addr, host,host_l, port)) return false;
-	if (connect(sock,(struct sockaddr *)&connsock_addr,sizeof(connsock_addr))==0) return true;
-	else return false;
+	errno=0;
+	if (connect(sock,(struct sockaddr *)&connsock_addr,sizeof(connsock_addr))==0) {
+		return true;
+	} else {
+		if (errno==EINPROGRESS) return true;
+		return false;
+	}
 }
 
 
