@@ -76,7 +76,22 @@ int main(int argc, char **argv) {
 	}	
 	
 	if (purl==NULL || surl==NULL) usage(argv[0]);
-	printf("starting with purl:%s surl:%s\n",purl,surl);
+	//printf("starting with purl:%s surl:%s\n",purl,surl);
+	parsedurl_t purl_,surl_;
+	if (!parseurl(purl,&purl_)) {  printf ("Failed to parse purl [%s] as URL\n",purl); return 1;}
+	if (!parseurl(surl,&surl_)) {  printf ("Failed to parse surl [%s] as URL\n",surl); return 1;}
+	
+	if (purl_.port==0) purl_.port=554;
+	if (surl_.port==0) surl_.port=554;
+
+	int psok=tcpsocket_nb();
+	if (!psok) {printf ("Failed to obtain a socket for proxy connection\n"); return 2;}
+	canreuseaddr(psok);
+	setnodelay(psok,true);
+	if (!connsockhl(psok,purl_.host,purl_.host_l,purl_.port)){
+		printf ("Failed to connect to proxy at %.*s:%hu\n",purl_.host_l,purl_.host,purl_.port); 
+		return 2;
+	}
 	/*
 	int epfd=epoll_create(2);
 	struct epoll_event epev;
@@ -84,5 +99,6 @@ int main(int argc, char **argv) {
 	epev.data.fd= STDIN_FILENO;
 	epoll_ctl(epfd,EPOLL_CTL_ADD, STDIN_FILENO ,&epev);
 	*/
+	
 	return 0;
 }

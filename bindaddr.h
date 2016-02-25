@@ -24,16 +24,23 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <stdint.h>
+#include <stdbool.h>
 
-#define udpsocket()  socket(AF_INET, SOCK_DGRAM, 0)
-#define tcpsocket()  socket(AF_INET, SOCK_STREAM, 0)
+#define udpsocket()  socket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC, 0)
+#define udpsocket_nb()  socket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0)
+#define tcpsocket()  socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
+#define tcpsocket_nb()  socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0)
 
 #define bindsock(sok,addr) bind(sok,(struct sockaddr *)addr,sizeof(struct sockaddr_in))
 
-int bindaddr (struct sockaddr_in *sadr,const char *host, uint16_t port);
-int canreuseaddr (int sock);
+bool bindaddrhl (struct sockaddr_in *sadr,const char *host,unsigned host_l , uint16_t port);
+bool bindaddr (struct sockaddr_in *sadr,const char *host, uint16_t port);
 
-//return 1 on success
-int connsock(int sok, const char *host, uint16_t port);
+int canreuseaddr (int sock);
+void setnodelay(int sock, bool nodelay);
+
+//return true on success
+bool connsockhl(int sok, const char *host, unsigned host_l, uint16_t port);
+static inline bool connsock(int sok, const char *host, uint16_t port) {return  connsockhl(sok, host,0, port);};
 
 #endif

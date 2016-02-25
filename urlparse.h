@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2007 by Stoian Ivanov                                   *
+ *   Copyright (C) 2016 by Stoian Ivanov                                   *
  *   s.ivanov@allterco.com                                                 *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -37,5 +37,7 @@ typedef struct {
 	unsigned uri_l;
 } parsedurl_t;
 
-bool parseurl(const char *url, parsedurl_t *pr,unsigned maxlen);
+//return false on error
+bool parseurlml(const char *url, parsedurl_t *pr,unsigned maxlen);
+static inline bool parseurl(const char *url, parsedurl_t *pr) {return parseurlml(url,pr,4096);};
 #endif
