@@ -21,7 +21,7 @@
 #include <getopt.h>
 #include <errno.h>
 #include <sys/epoll.h>
-#include "bindaddr.h"
+#include "inettools.h"
 #include "urlparse.h"
 #include "buffer.h"
 

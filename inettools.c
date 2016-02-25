@@ -17,7 +17,6 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#include "bindaddr.h"
 
 #include <stdbool.h>
 #include <netdb.h>
@@ -28,6 +27,7 @@
 
 #include <netinet/tcp.h>
 #include <errno.h>
+#include "inettools.h"
 
 
 bool bindaddrhl (struct sockaddr_in *sadr,const char *host,unsigned host_l, uint16_t port) {

@@ -6,6 +6,6 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_COMMON} -O0 -g")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_COMMON} -O2")
 
 
-add_executable(rtsp_reg_proxy rtsp_reg_proxy.c bindaddr.c urlparse.c strtoint.c buffer.c)
+add_executable(rtsp_reg_proxy rtsp_reg_proxy.c inettools.c urlparse.c strtoint.c buffer.c)
 
 #install(TARGETS rtsp_reg_proxy RUNTIME DESTINATION bin)

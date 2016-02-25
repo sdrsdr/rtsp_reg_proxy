@@ -18,8 +18,8 @@
  ***************************************************************************/
 
 
-#ifndef bindaddr_h_SDR_3gg234msd2aa_included
-#define bindaddr_h_SDR_3gg234msd2aa_included
+#ifndef inettools_h_SDR_3gg234msd2aa_included
+#define inettools_h_SDR_3gg234msd2aa_included
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
