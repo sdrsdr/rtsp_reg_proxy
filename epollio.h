@@ -23,11 +23,12 @@
 #include <stdint.h>
 #include <sys/epoll.h>
 
+
 typedef struct epollio_tag epollio_t;
 //all callbacks should return true to stop the loop
 typedef bool (*epollio_tick_t) (epollio_t *ep) ;
 typedef bool (*epollio_timeout_t) (epollio_t *ep) ;
-typedef bool (*epollio_handleevent_t) (epollio_t *ep, epoll_data_t epdata, uint32_t events) ;
+typedef bool (*epollio_handleevent_t) (epollio_t *ep, epoll_data_t*epdata, uint32_t events) ;
 
 struct epollio_tag {
 	int epollfd;
@@ -53,6 +54,10 @@ static inline bool epollio_mod (epollio_t *ep,int fd, epoll_data_t* epdata, uint
 static inline bool epollio_delfh (int epfd,int fd, epoll_data_t* epdata, uint32_t events) { return epollio_opfh_inepfh(epfd,fd,EPOLL_CTL_DEL,epdata,events);};
 static inline bool epollio_del (epollio_t *ep,int fd, epoll_data_t* epdata, uint32_t events) { return epollio_opfh_inepfh(ep->epollfd,fd,EPOLL_CTL_DEL,epdata,events);};
 
+//number of  event buffer elements to wait for
+#ifndef EPOLLIO_WBUFELCNT
+#define EPOLLIO_WBUFELCNT 2
+#endif
 bool epollio_run (epollio_t *ep);
 
 #endif

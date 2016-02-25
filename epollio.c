@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <errno.h>
 
 #include "epollio.h"
 
@@ -52,6 +53,30 @@ bool epollio_opfh_inepfh (int epfd,int fd,int op,epoll_data_t *epdata,uint32_t e
 
 
 bool epollio_run (epollio_t *ep){
-	
+	struct epoll_event epev[EPOLLIO_WBUFELCNT], *cev;
+	while (true) {
+		if (ep->prewait) {
+			if (ep->prewait(ep)) break;
+		}
+		errno=0;
+		int cnt=epoll_wait(ep->epollfd, epev, EPOLLIO_WBUFELCNT, ep->waittimeout);
+		if (cnt==0) {
+			if (ep->timeout && ep->timeout(ep)) break;
+			if (ep->postwait && ep->postwait(ep)) break;
+		}  else if (cnt<0) {
+			if (errno==EINTR) {
+				if (ep->postwait && ep->postwait(ep)) break;
+				continue;
+			} else return false;
+		}
+		if (ep->postwait && ep->postwait(ep)) break;
+		
+		bool brk=false;
+		for (cev=epev; cnt>0; cnt--,cev++){
+			if ( (brk=ep->handle(ep,&cev->data,cev->events))) break;
+		}
+		if (brk) break;
+	}
+	return true;
 }
 
