@@ -28,7 +28,7 @@ typedef struct {
 	char *datastart; //start of the data in the data memory
 	char *freestart; // end of data in  in data memory
 	
-	char data[0];// offset at te end of the header
+	char post_header_memory[0];// offset at te end of the header
 } buffer_t;
 
 //initialize start of mem  as buffer_t  containing the rest of it
@@ -43,8 +43,17 @@ void buffer_linkto(buffer_t *b,void *mem,unsigned totmemsz);
 static inline unsigned buffer_datalen (buffer_t*b) {return (unsigned)(b->freestart-b->datastart);};
 static inline unsigned buffer_freelen (buffer_t*b) {return b->datablock_size - (unsigned)(b->freestart-b->datablock_start);};
 static inline unsigned buffer_freemaxlen (buffer_t*b) {return b->datablock_size - (unsigned)(b->freestart-b->datastart);}; //b->datablock_size-buffer_datalen(b)
+static inline void buffer_reset (buffer_t*b) {b->freestart=b->datastart=b->datablock_start;}; 
 
 //move data at the start of the data memory
 void buffer_compact(buffer_t*b);
+
+typedef enum  {
+	rw_ioerr=0,w_allwritten,w_someleft,r_nomore,r_overflow
+} buffer_iostatus_t;
+
+buffer_iostatus_t buffer_writeout(buffer_t*b,int fd);
+buffer_iostatus_t buffer_readin(buffer_t*b,int fd);
+
 
 #endif

@@ -24,6 +24,7 @@
 #include "inettools.h"
 #include "urlparse.h"
 #include "buffer.h"
+#include "epollio.h"
 
 const char *purl=NULL;
 #define PURL_OPT  1
@@ -39,7 +40,7 @@ static struct option long_options[] =
 	{0, 0, 0, 0}
 };
 
-
+epollio_t ep;
 
 void usage(const char *name){
 	printf(
@@ -57,7 +58,7 @@ int ssok; //rtsp source connection socket
 parsedurl_t purl_,surl_; //parsed purl,surl
 
 enum {
-	connecting=0,registering
+	connecting=0,registering,waitok,proxy
 } pstate=connecting;
 
 
@@ -72,37 +73,65 @@ buffer_t *prx;
 #define PTX_SZ  BUFF_SZ 
 #define PRX_SZ  BUFF_SZ 
 
-void handle_psok(uint32_t event) {
+bool handle_psok(epollio_t *ep, uint32_t event) {
 	if (event & (EPOLLERR|EPOLLHUP)) {
+		//flush read if needed
+		if (event & EPOLLIN) handle_psok(ep, EPOLLIN);
 		printf("HUP or ERR on proxy connection in state %c\n",PSTATEC);
-		exit(11);
+		return true;
 	}
-	if (event & EPOLLIN ) { //writable
-		unsigned tosend=buffer_datalen(ptx);
-		if (tosend) {
-			while (tosend) {
-				errno=0;
-				int written= send(psok,ptx->datastart,tosend,0);
-				if (written<0) {
-					if (errno==EINTR) continue; 
-					if (errno==EAGAIN || errno==EWOULDBLOCK || errno==EWOULDBLOCK) break;
-					printf("ERR while writing over proxy connection in state %c\n",PSTATEC);
-					exit(11);
-				} else if (written==0) break;
-				tosend-=written;
-				//TODO:fix epoll
+	if (event & EPOLLOUT ) { //writable
+		if (pstate==connecting) {
+			unsigned flen=buffer_freelen(ptx);
+			int written=snprintf(ptx->freestart, flen, "REGISTER %s RTSP/1.0\r\nCSeq: 1\r\nTransport: reuse_connection; npreferred_delivery_protocol=udp; proxy_url_suffix=%.*s\r\n\r\n",surl,purl_.uri_l-1,purl_.uri+1);
+			if (written>=flen) {
+				printf ("Failed to prepate register rq!?\n");
+				return true;
+			} 
+			printf("===== register request =====\n%s============================\n",ptx->freestart);
+			ptx->freestart+=written;
+			pstate=registering;
+			return handle_psok(ep, event);
+		} else if (pstate==registering){
+			if (buffer_writeout(ptx,psok)==w_allwritten) {
+				pstate=waitok;
+				return handle_psok(ep, event|EPOLLIN); //asume readable 
 			}
 		}
 	}
-	if (event & EPOLLOUT ) { //readable
-		
-	}
-}
-
-void handle_ssok(uint32_t event) {
 	
+	if (event & EPOLLIN ) { //readable
+		if (pstate==waitok) {
+			if (buffer_readin(prx,psok)==r_overflow) {
+				unsigned dl=buffer_datalen(prx);
+				printf("Read overflow?! rx buf now:\n%.*s\n====================\n",dl,prx->datastart);
+				return true;
+			}
+			unsigned dl=buffer_datalen(prx);
+			if (dl!=0) {
+				printf("======= %u bytes in 'waitok' ======\n%.*s\n=====================\n",dl,dl,prx->datastart);
+				buffer_reset(prx);
+			}
+			return false;
+		}
+	}
+	return false;
 }
 
+bool handle_ssok(epollio_t *ep,uint32_t event) {
+	return false;
+}
+
+bool handleevents (epollio_t *ep, epoll_data_t*epdata, uint32_t events) {
+	if (epdata->fd==psok) return handle_psok(ep,events); 
+	if (epdata->fd==ssok) return handle_ssok(ep,events); 
+	return true;
+}
+
+bool handletmo (epollio_t *ep){
+	printf("timout waiting for events! All done?\n");
+	return true;
+}
 
 int main(int argc, char **argv) {
 	
@@ -154,29 +183,21 @@ int main(int argc, char **argv) {
 	
 	ptx=buffer_malloc(PTX_SZ);
 	prx=buffer_malloc(PRX_SZ);
+	
 	if (!ptx || !prx) {
 		printf("Failed to allocate tx/rx buffers for proxy connection\n"); 
 		return 3;
 	}
 	
-	int epfd=epoll_create(2);
-	struct epoll_event epev[2],*cev=epev;
+	epoll_data_t epdata;
+	epollio_init(&ep,10000,handleevents);
 	
-	cev->events=EPOLLIN|EPOLLOUT;
-	cev->data.fd=psok;
-	epoll_ctl(epfd,EPOLL_CTL_ADD, psok ,cev);
+	epdata.fd=psok;
+	epollio_add (&ep,psok,&epdata,EPOLLIN|EPOLLOUT|EPOLLET);
 	
-	while (true) {
-		int cnt=epoll_wait(epfd, epev, 2, 5000);
-		if (cnt==0) {
-			printf("timout waiting for events! All done?\n");
-			return 0;
-		}
-		
-		for (cev=epev; cnt>0; cnt--,cev++){
-			
-		}
-	}
+	ep.timeout=handletmo;
 	
+	epollio_run(&ep);
+	printf("epollio loop ended!\n"); 
 	return 0;
 }
