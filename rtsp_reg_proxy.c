@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdio.h>
 #include <getopt.h>
 #include <errno.h>
@@ -58,7 +59,7 @@ int ssok; //rtsp source connection socket
 parsedurl_t purl_,surl_; //parsed purl,surl
 
 enum {
-	connecting=0,registering,waitok,proxy
+	connecting=0,registering,waitok,waitokend,proxy
 } pstate=connecting;
 
 
@@ -72,6 +73,25 @@ buffer_t *prx;
 
 #define PTX_SZ  BUFF_SZ 
 #define PRX_SZ  BUFF_SZ 
+
+typedef enum {
+	incomplete,isok,isNotok
+} pres_t;
+
+pres_t tryParseResp (const char *b,unsigned len) {
+	if (len<13) return incomplete;
+	//1234567890123
+	//RTSP/1.0 200 OK
+	if (b[8]!=' ') return isNotok;
+	if (memcmp(b,"RTSP/1.0",8)!=0)  return isNotok;
+	const char *split=b+8;
+	const char *splitend=b+len-5;
+	while (split<splitend && *split==' ') split++;
+	if (*split==' ') return incomplete;
+	if (split[0]=='2' && split[1]=='0' && split[2]=='0' && split[3]==' ') return isok;
+	return isNotok;
+}
+
 
 bool handle_psok(epollio_t *ep, uint32_t event) {
 	if (event & (EPOLLERR|EPOLLHUP)) {
@@ -110,9 +130,25 @@ bool handle_psok(epollio_t *ep, uint32_t event) {
 			unsigned dl=buffer_datalen(prx);
 			if (dl!=0) {
 				printf("======= %u bytes in 'waitok' ======\n%.*s\n=====================\n",dl,dl,prx->datastart);
-				buffer_reset(prx);
+				pres_t pres=tryParseResp(prx->datastart,dl);
+				if (pres==isok) {
+					pstate=waitokend;
+					return handle_psok(ep, event);
+				} else if (pres==isNotok) {
+					printf("Proxy did not accepted the stream!\n");
+					return false;
+				} else return false; //incomplete 
+				//buffer_reset(prx);
 			}
 			return false;
+		}
+		if (pstate==waitok) {
+			if (buffer_readin(prx,psok)==r_overflow) {
+				unsigned dl=buffer_datalen(prx);
+				printf("Read overflow?! rx buf now:\n%.*s\n====================\n",dl,prx->datastart);
+				return true;
+			}
+			//TODO
 		}
 	}
 	return false;
