@@ -60,7 +60,7 @@ void buffer_compact(buffer_t*b){
 }
 
 
-buffer_iostatus_t buffer_writeout(buffer_t*b,int fd){
+buffer_iostatus_t buffer_writeout(buffer_t*b,int fd,unsigned *written_){
 	unsigned tosend=buffer_datalen(b);
 	if (tosend) {
 		while (tosend) {
@@ -73,17 +73,25 @@ buffer_iostatus_t buffer_writeout(buffer_t*b,int fd){
 			} else if (written==0) break;
 			tosend-=written;
 			b->datastart+=written;
+			if(written_) *written_+=written;
 		}
 		if (b->datastart==b->freestart) { //move to front
 			b->datastart=b->datablock_start;
 			b->freestart=b->datablock_start;
 		}
+	} else {
+		if(written_) *written_=0;
+		return w_allwritten;
 	}
+	
 	if (tosend) return w_someleft;
-	else return w_allwritten;
+	else {
+		buffer_reset(b);
+		return w_allwritten;
+	}
 }
 
-buffer_iostatus_t buffer_readin(buffer_t*b,int fd){
+buffer_iostatus_t buffer_readin(buffer_t*b,int fd,unsigned *dl){
 	unsigned maxrcv=buffer_freelen(b);
 	
 	while (maxrcv) {
@@ -97,7 +105,7 @@ buffer_iostatus_t buffer_readin(buffer_t*b,int fd){
 		maxrcv-=bread;
 		b->freestart+=bread;
 	}
-	
+	if (dl) *dl=buffer_datalen(b);
 	if (maxrcv==0) return r_overflow;
 	else return r_nomore;
 }

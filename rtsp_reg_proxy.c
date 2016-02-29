@@ -14,7 +14,10 @@
 *    You should have received a copy of the GNU General Public License       *
 *    along with this program.  If not, see <http://www.gnu.org/licenses/>.   *
 ******************************************************************************/
+
+#define _GNU_SOURCE //we need some memmem 
 #include <stdint.h>
+#include <unistd.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,8 +56,8 @@ void usage(const char *name){
 }
 
 
-int psok; //proxy connection socket
-int ssok; //rtsp source connection socket
+int psok=0; //proxy connection socket
+int ssok=0; //rtsp source connection socket
 
 parsedurl_t purl_,surl_; //parsed purl,surl
 
@@ -92,15 +95,33 @@ pres_t tryParseResp (const char *b,unsigned len) {
 	return isNotok;
 }
 
+static bool startsrccon(){
+	ssok=tcpsocket_nb();
+	if (!ssok) return false;
+	canreuseaddr(ssok);
+	setnodelay(ssok,true);
+	if (!connsockhl(ssok,surl_.host,surl_.host_l,surl_.port)){
+		printf ("Failed to connect to source at %.*s:%d\n",surl_.host_l,surl_.host,surl_.port); 
+		return false;
+	}
+	epoll_data_t epdata;
+	epdata.fd=ssok;
+	epollio_add (&ep,ssok,&epdata,EPOLLIN|EPOLLOUT|EPOLLET);
 
+	return true;
+}
+bool handle_ssok(epollio_t *ep,uint32_t event);
 bool handle_psok(epollio_t *ep, uint32_t event) {
 	if (event & (EPOLLERR|EPOLLHUP)) {
 		//flush read if needed
 		if (event & EPOLLIN) handle_psok(ep, EPOLLIN);
 		printf("HUP or ERR on proxy connection in state %c\n",PSTATEC);
+		close(psok);
+		close(ssok);
 		return true;
 	}
 	if (event & EPOLLOUT ) { //writable
+		unsigned written;
 		if (pstate==connecting) {
 			unsigned flen=buffer_freelen(ptx);
 			int written=snprintf(ptx->freestart, flen, "REGISTER %s RTSP/1.0\r\nCSeq: 1\r\nTransport: reuse_connection; npreferred_delivery_protocol=udp; proxy_url_suffix=%.*s\r\n\r\n",surl,purl_.uri_l-1,purl_.uri+1);
@@ -113,48 +134,91 @@ bool handle_psok(epollio_t *ep, uint32_t event) {
 			pstate=registering;
 			return handle_psok(ep, event);
 		} else if (pstate==registering){
-			if (buffer_writeout(ptx,psok)==w_allwritten) {
+			if (buffer_writeout(ptx,psok,&written)==w_allwritten) {
 				pstate=waitok;
 				return handle_psok(ep, event|EPOLLIN); //asume readable 
+			}
+		} else if (pstate==proxy) {
+			if (buffer_writeout(ptx,psok,&written)==w_allwritten && written!=0) {
+				printf("==== src-to-proxy flushed out\n"); 
+				handle_ssok(ep,EPOLLIN); //try reding from src 
 			}
 		}
 	}
 	
 	if (event & EPOLLIN ) { //readable
-		if (pstate==waitok) {
-			if (buffer_readin(prx,psok)==r_overflow) {
-				unsigned dl=buffer_datalen(prx);
-				printf("Read overflow?! rx buf now:\n%.*s\n====================\n",dl,prx->datastart);
-				return true;
-			}
-			unsigned dl=buffer_datalen(prx);
-			if (dl!=0) {
-				printf("======= %u bytes in 'waitok' ======\n%.*s\n=====================\n",dl,dl,prx->datastart);
-				pres_t pres=tryParseResp(prx->datastart,dl);
-				if (pres==isok) {
-					pstate=waitokend;
-					return handle_psok(ep, event);
-				} else if (pres==isNotok) {
-					printf("Proxy did not accepted the stream!\n");
-					return false;
-				} else return false; //incomplete 
-				//buffer_reset(prx);
-			}
-			return false;
+		unsigned dl;
+		if (buffer_readin(prx,psok,&dl)==r_overflow) {
+			printf("Read overflow?! rx buf now:\n%.*s\n====================\n",dl,prx->datastart);
+			return true;
 		}
+		if (dl==0) return false; //nothing to consider actualy 
+		
 		if (pstate==waitok) {
-			if (buffer_readin(prx,psok)==r_overflow) {
-				unsigned dl=buffer_datalen(prx);
-				printf("Read overflow?! rx buf now:\n%.*s\n====================\n",dl,prx->datastart);
-				return true;
+			printf("======= %u bytes in 'waitok' ======\n%.*s\n=====================\n",dl,dl,prx->datastart);
+			pres_t pres=tryParseResp(prx->datastart,dl);
+			if (pres==isok) {
+				printf("Proxy ACKed the stream..\n");
+				buffer_reset(ptx);
+				if (!startsrccon()) {
+					printf("Failed to start src conn!\n");
+					return true;
+				};
+				pstate=waitokend;
+				return handle_psok(ep, event);
+			} else if (pres==isNotok) {
+				printf("Proxy did not accepted the stream!\n");
+				return false;
 			}
-			//TODO
+			return false; //incomplete 
+		}
+		if (pstate==waitokend) {
+			char *pos=(char *)memmem(prx->datastart,dl,"\r\n\r\n",4);
+			if (pos) {
+				prx->datastart=pos+4;
+				dl=buffer_datalen(prx);
+				printf("End of OK reply found! data to proxy atm (len:%u) ======\n%.*s\n=========================\n",dl,(int)dl,prx->datastart);
+				pstate=proxy;
+				return handle_psok(ep, event);
+			}
+			return false; //wait more data
+		}
+		if (pstate==proxy) {
+			printf("======= %u bytes from proxy in 'proxy' ======\n%.*s\n=====================\n",dl,dl,prx->datastart);
+			handle_ssok(ep,EPOLLOUT); //try sending to src 
 		}
 	}
 	return false;
 }
 
 bool handle_ssok(epollio_t *ep,uint32_t event) {
+	if (event & (EPOLLERR|EPOLLHUP)) {
+		//flush read if needed
+		if (event & EPOLLIN) handle_ssok(ep, EPOLLIN);
+		printf("HUP or ERR on scr connection\n");
+		close(ssok);
+		close(psok);
+		return true;
+	}
+	if (event & EPOLLIN ) { //readable
+		unsigned dl;
+		if (buffer_readin(ptx,ssok,&dl)==r_overflow) {
+			printf("Read overflow in src?! rx buf now:\n%.*s\n====================\n",dl,ptx->datastart);
+			return true;
+		}
+		if (dl>0) {
+			printf("======= %u bytes from proxy data to send ======\n%.*s\n=====================\n",dl,(int)buffer_datalen(ptx) ,ptx->datastart);
+			handle_psok(ep,EPOLLOUT); //try sending to proxy
+		}
+	}
+	if (event & EPOLLOUT ) { //writable
+		unsigned written;
+		if (buffer_writeout(prx,ssok,&written)==w_allwritten && written>0) {
+			printf("==== proxy-to-src flushed out\n"); 
+			handle_psok(ep,EPOLLIN); //try reding from proxy
+		}
+	}
+	
 	return false;
 }
 
@@ -213,7 +277,7 @@ int main(int argc, char **argv) {
 	canreuseaddr(psok);
 	setnodelay(psok,true);
 	if (!connsockhl(psok,purl_.host,purl_.host_l,purl_.port)){
-		printf ("Failed to connect to proxy at %.*s:%hu\n",purl_.host_l,purl_.host,purl_.port); 
+		printf ("Failed to connect to proxy at %.*s:%d\n",purl_.host_l,purl_.host,purl_.port); 
 		return 2;
 	}
 	

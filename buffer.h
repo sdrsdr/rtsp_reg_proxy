@@ -52,8 +52,8 @@ typedef enum  {
 	rw_ioerr=0,w_allwritten,w_someleft,r_nomore,r_overflow
 } buffer_iostatus_t;
 
-buffer_iostatus_t buffer_writeout(buffer_t*b,int fd);
-buffer_iostatus_t buffer_readin(buffer_t*b,int fd);
+buffer_iostatus_t buffer_writeout(buffer_t*b,int fd,unsigned *written_/*=NULL*/);
+buffer_iostatus_t buffer_readin(buffer_t*b,int fd,unsigned *dl/*=NULL*/);
 
 
 #endif
